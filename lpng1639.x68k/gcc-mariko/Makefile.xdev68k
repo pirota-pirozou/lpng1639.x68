@@ -1,0 +1,145 @@
+# makefile for libpng using gcc (generic, static library)
+# Copyright (C) 2008, 2014 Glenn Randers-Pehrson
+# Copyright (C) 2000 Cosmin Truta
+# Copyright (C) 1995 Guy Eric Schalnat, Group 42, Inc.
+#
+# This code is released under the libpng license.
+# For conditions of distribution and use, see the disclaimer
+# and license in png.h
+
+# 必要な環境変数が定義されていることを確認する。
+ifndef XDEV68K_DIR
+	$(error ERROR : XDEV68K_DIR is not defined.)
+endif
+
+# デフォルトサフィックスを削除
+.SUFFIXES:
+
+# ビルド対象の CPU
+CPU = 68000
+
+# Location of the zlib library and include files
+ZLIBINC = .
+ZLIBLIB = .
+ZLIB = libz.a
+
+EXEEXT = .x
+
+#
+ATOMIC = perl ${XDEV68K_DIR}/util/atomic.pl
+GAS2HAS = perl ${XDEV68K_DIR}/util/x68k_gas2has.pl -cpu $(CPU) -inc doscall.inc -inc iocscall.inc
+RUN68 = $(ATOMIC) ${XDEV68K_DIR}/run68/run68
+
+# Compiler, linker, lib and other tools
+PREFIX = ${XDEV68K_DIR}/m68k-toolchain/bin/m68k-elf-
+
+CC = $(PREFIX)gcc
+LD = $(CC)
+RM_F = rm -f
+
+HAS = $(RUN68) ${XDEV68K_DIR}/x68k_bin/HAS060.X
+GLK = $(RUN68) ${XDEV68K_DIR}/x68k_bin/g2lk.x
+HLK = $(RUN68) ${XDEV68K_DIR}/x68k_bin/hlk301.x
+
+STRIP = $(RUN68) ${XDEV68K_DIR}/x68k_bin/strip.x
+
+# ヘッダ検索パス
+INCLUDE_FLAGS = -I${XDEV68K_DIR}/include/xc -I${XDEV68K_DIR}/include/xdev68k
+COMMON_FLAGS = -m$(CPU) -Os $(INCLUDE_FLAGS) -I$(ZLIBINC) -DGCC_MARIKO
+
+CFLAGS = $(COMMON_FLAGS) -W -Wall -Os -fvisibility=hidden -Wno-builtin-declaration-mismatch -fcall-used-d2 -fcall-used-a2 -finput-charset=cp932 -fexec-charset=cp932 -fverbose-asm
+CPPFLAGS = $(CLFAGS) -fno-rtti -fno-exceptions -std=gnu++17 # -DPNG_DEBUG=5
+LDFLAGS =
+
+LIBPNG = libpng.a
+# LIBPNG = libpng.l
+
+AR_RC= $(RUN68) ${XDEV68K_DIR}/x68k_bin/ar.x
+# AR_RC = $(RUN68) ${XDEV68K_DIR}/x68k_bin/lib.x -m 65534
+ARFLAGS =
+
+
+# リンク対象のライブラリファイル
+LIBS = \
+	${XDEV68K_DIR}/lib/xc/BASLIB.L \
+	${XDEV68K_DIR}/lib/xc/CLIB.L \
+	${XDEV68K_DIR}/lib/xc/DOSLIB.L \
+	${XDEV68K_DIR}/lib/xc/IOCSLIB.L \
+	${XDEV68K_DIR}/lib/xc/FLOATFNC.L \
+	${XDEV68K_DIR}/m68k-toolchain/m68k-elf/lib/$(ZLIB) \
+	${XDEV68K_DIR}/lib/m68k_elf/m$(CPU)/libgcc.a \
+	${XDEV68K_DIR}/lib/m68k_elf/m$(CPU)/libstdc++.a \
+
+
+# 中間ファイル生成用ディレクトリ
+INTERMEDIATE_DIR = _build/m$(CPU)
+
+# HLK に入力するリンクリスト
+HLK_LINK_LIST = _lk_list.tmp
+HLK_LINK_LIST1 = _lk_list1.tmp
+HLK_LINK_LIST2 = _lk_list2.tmp
+
+# File extensions
+EXEEXT = .x
+
+# Variables
+C_SRCS =  png.c pngerror.c pngget.c pngmem.c pngpread.c \
+	pngread.c pngrio.c pngrtran.c pngrutil.c pngset.c \
+	pngtrans.c pngwio.c pngwrite.c pngwtran.c pngwutil.c
+
+# オブジェクトファイル
+OBJS = $(patsubst %.c,%.o,$(C_SRCS))
+
+# Targets
+all: $(LIBPNG) pngtest$(EXEEXT)
+
+clean:
+	$(RM_F) *.o $(LIBPNG) pngout.png *.x
+	rm -rf $(INTERMEDIATE_DIR)
+
+$(LIBPNG) : $(OBJS)
+#	rm -f $(HLK_LINK_LIST)
+#	echo $(OBJS) > $(HLK_LINK_LIST)
+#	@for FILENAME in $(OBJS); do\
+#		echo $$FILENAME >> $(HLK_LINK_LIST); \
+#	done
+	$(AR_RC) $@ $(OBJS)
+
+%.o : %.c Makefile.xdev68k
+#	$(CC) -c $(CPPFLAGS) $(CFLAGS) -o $@ $<
+	$(CC) -S $(CPPFLAG) $(CFLAGS) -o $*.m68k-gas.s $<
+	$(GAS2HAS) -i $*.m68k-gas.s -o $*.s
+	rm -f $*.m68k-gas.s
+	$(HAS) -e -u -w0 $(INCLUDE_FLAGS) $*.s -o $@
+
+test: pngtest$(EXEEXT)
+	$(RUN68) ./pngtest$(EXEEXT)
+
+pngtest$(EXEEXT): pngtest.o $(LIBPNG)
+#	$(LD) $(LDFLAGS) -L$(ZLIBLIB) -o $@ pngtest.o libpng.a $(LIBS)
+	echo pngtest.o > $(HLK_LINK_LIST1)
+	echo $(LIBPNG) >> $(HLK_LINK_LIST1)
+	mkdir -p $(INTERMEDIATE_DIR)
+	@for FILENAME in $(LIBS); do\
+		cp $$FILENAME $(INTERMEDIATE_DIR)/`basename $$FILENAME`; \
+		echo $(INTERMEDIATE_DIR)/`basename $$FILENAME` >> $(HLK_LINK_LIST1); \
+	done
+	$(HLK) -i $(HLK_LINK_LIST1) -o $@
+
+png.o:      png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngerror.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngget.o:   png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngmem.o:   png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngpread.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngread.o:  png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngrio.o:   png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngrtran.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngrutil.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngset.o:   png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngtrans.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngwio.o:   png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngwrite.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngwtran.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+pngwutil.o: png.h pngconf.h pnglibconf.h pngpriv.h pngstruct.h pnginfo.h pngdebug.h
+
+pngtest.o:  png.h pngconf.h pnglibconf.h
