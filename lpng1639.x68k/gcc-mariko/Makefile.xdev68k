@@ -111,6 +111,7 @@ $(LIBPNG) : $(OBJS)
 	$(GAS2HAS) -i $*.m68k-gas.s -o $*.s
 	rm -f $*.m68k-gas.s
 	$(HAS) -e -u -w0 $(INCLUDE_FLAGS) $*.s -o $@
+	rm -f $*.s
 
 test: pngtest$(EXEEXT)
 	$(RUN68) ./pngtest$(EXEEXT)
